@@ -1,5 +1,12 @@
 # Block Sparse Attention
 
+## FlagScale HorizonKV fork
+
+This fork adds support used by FlagScale HorizonKV for variable attention block
+dimensions and 64x64 sparse-attention kernels. The original Block Sparse
+Attention API remains compatible; callers can pass `m_block_dim` and
+`n_block_dim` (64 or 128) to select the block shape.
+
 As prompt lengths continue to increase, the computational and memory bandwidth demands of Large Language Models (LLMs) grow significantly, making efficient processing more challenging. However, by fully leveraging the inherent sparsity in attention patterns, we can optimize the model’s performance, effectively reducing inference costs in computation. This approach not only enhances the efficiency of LLMs but also enables them to handle longer and more complex prompts without a proportional increase in resource consumption. To this end, we introduce Block Sparse Attention, a library of sparse attention kernels that supports various sparse patterns, including streaming attention with token granularity, streaming attention with block granularity, and block-sparse attention. By incorporating these patterns, Block Sparse Attention can significantly reduce the computational costs of LLMs, thereby enhancing their efficiency and scalability.
 
 We release the implementation of Block Sparse Attention, which is initially modified base on [FlashAttention](https://github.com/Dao-AILab/flash-attention) 2.4.2.

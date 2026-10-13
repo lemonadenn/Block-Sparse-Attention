@@ -6,6 +6,8 @@
  ******************************************************************************/
 
 #pragma once
+#include <cstdlib>
+
 #include "namespace_config.h"
 #include <c10/cuda/CUDAException.h>  // For C10_CUDA_CHECK and C10_CUDA_KERNEL_LAUNCH_CHECK
 
@@ -15,6 +17,8 @@
 #include "flash_fwd_kernel.h"
 
 namespace FLASH_NAMESPACE {
+
+// The 64x64 forward tile uses four warps, matching its MMA and copy layouts.
 template<typename Kernel_traits, bool Is_dropout, bool Is_causal, bool Is_local, bool Has_alibi, bool Is_even_MN, bool Is_even_K, bool Return_softmax, bool Is_exact_streaming>
 __global__ void flash_fwd_block_kernel(Flash_fwd_params params) {
     static_assert(!(Is_causal && Is_local));  // If Is_local is true, Is_causal should be false
@@ -70,6 +74,10 @@ template<typename T, bool Is_causal>
 void run_mha_fwd_block_hdim32(Flash_fwd_params &params, cudaStream_t stream) {
     constexpr static int Headdim = 32;
     BOOL_SWITCH(params.p_dropout < 1.f, Is_dropout, [&] {
+        if (params.m_block_dim == 64 && params.n_block_dim == 64) {
+            run_flash_fwd_block<Flash_fwd_kernel_traits<Headdim, 64, 64, 4, false, false, T>, Is_dropout, Is_causal>(params, stream);
+            return;
+        }
         run_flash_fwd_block<Flash_fwd_kernel_traits<Headdim, 128, 128, 4, false, false, T>, Is_dropout, Is_causal>(params, stream);
     });
 }
@@ -78,6 +86,10 @@ template<typename T, bool Is_causal>
 void run_mha_fwd_block_hdim64(Flash_fwd_params &params, cudaStream_t stream) {
     constexpr static int Headdim = 64;
     BOOL_SWITCH(params.p_dropout < 1.f, Is_dropout, [&] {
+        if (params.m_block_dim == 64 && params.n_block_dim == 64) {
+            run_flash_fwd_block<Flash_fwd_kernel_traits<Headdim, 64, 64, 4, false, false, T>, Is_dropout, Is_causal>(params, stream);
+            return;
+        }
         if constexpr(!Is_dropout) {
             run_flash_fwd_block<Flash_fwd_kernel_traits<Headdim, 128, 128, 4, false, false, T>, Is_dropout, Is_causal>(params, stream);
         } else {
@@ -93,6 +105,10 @@ void run_mha_fwd_block_hdim128(Flash_fwd_params &params, cudaStream_t stream) {
     auto [cc_major, cc_minor] = get_compute_capability(get_current_device());
     bool is_sm8x = cc_major == 8 && cc_minor > 0;
     BOOL_SWITCH(params.p_dropout < 1.f, Is_dropout, [&] {
+        if (params.m_block_dim == 64 && params.n_block_dim == 64) {
+            run_flash_fwd_block<Flash_fwd_kernel_traits<Headdim, 64, 64, 4, false, false, T>, Is_dropout, Is_causal>(params, stream);
+            return;
+        }
         if constexpr(!Is_dropout) {
             // For sm86 or sm89, 64 x 64 is the fastest for causal (because it's square),
             // and 128 x 32 (48 KB smem) is the fastest for non-causal since we get 2 CTAs per SM.

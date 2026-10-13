@@ -84,13 +84,16 @@ def add_cuda_gencodes(cc_flag, archs, bare_metal_version):
       - Map requested 110 -> 101 if CUDA < 13.0 (Thor rename)
       - Embed PTX for newest arch for forward compatibility
     """
+    emitted_arches = []
     # Always-regular 80
     if "80" in archs:
         cc_flag += ["-gencode", "arch=compute_80,code=sm_80"]
+        emitted_arches.append("80")
 
     # Hopper 9.0 needs >= 11.8
     if bare_metal_version >= Version("11.8") and "90" in archs:
         cc_flag += ["-gencode", "arch=compute_90,code=sm_90"]
+        emitted_arches.append("90")
 
     # Blackwell 10.x requires >= 12.8
     if bare_metal_version >= Version("12.8"):
@@ -100,6 +103,7 @@ def add_cuda_gencodes(cc_flag, archs, bare_metal_version):
                 cc_flag += ["-gencode", "arch=compute_100f,code=sm_100"]
             else:
                 cc_flag += ["-gencode", "arch=compute_100,code=sm_100"]
+            emitted_arches.append("100")
 
         if "120" in archs:
             # sm_120 is supported in CUDA 12.8/12.9+ toolkits
@@ -107,22 +111,24 @@ def add_cuda_gencodes(cc_flag, archs, bare_metal_version):
                 cc_flag += ["-gencode", "arch=compute_120f,code=sm_120"]
             else:
                 cc_flag += ["-gencode", "arch=compute_120,code=sm_120"]
+            emitted_arches.append("120")
 
 
         # Thor rename: 12.9 uses sm_101; 13.0+ uses sm_110
         if "110" in archs:
             if bare_metal_version >= Version("13.0"):
                 cc_flag += ["-gencode", "arch=compute_110f,code=sm_110"]
+                emitted_arches.append("110")
             else:
                 # Provide Thor support for CUDA 12.9 via sm_101
                 if bare_metal_version >= Version("12.8"):
                     cc_flag += ["-gencode", "arch=compute_101,code=sm_101"]
+                    emitted_arches.append("101")
                 # else: no Thor support in older toolkits
 
-    # PTX for newest requested arch (forward-compat)
-    numeric = [a for a in archs if a.isdigit()]
-    if numeric:
-        newest = max(numeric, key=int)
+    # PTX for newest supported emitted arch (forward-compat)
+    if emitted_arches:
+        newest = max(emitted_arches, key=int)
         cc_flag += ["-gencode", f"arch=compute_{newest},code=compute_{newest}"]
 
     return cc_flag
@@ -151,7 +157,16 @@ ext_modules = []
 
 # We want this even if SKIP_CUDA_BUILD because when we run python setup.py sdist we want the .hpp
 # files included in the source distribution, in case the user compiles from source.
-subprocess.run(["git", "submodule", "update", "--init", "csrc/cutlass"])
+cutlass_header = Path(this_dir) / "csrc" / "cutlass" / "include" / "cutlass" / "numeric_types.h"
+if not cutlass_header.is_file():
+    git_config = Path(this_dir) / ".git" / "config"
+    if git_config.is_file() and os.access(git_config, os.W_OK):
+        subprocess.run(["git", "submodule", "update", "--init", "csrc/cutlass"], check=False)
+    if not cutlass_header.is_file():
+        warnings.warn(
+            "CUTLASS headers are missing at csrc/cutlass/include. "
+            "Builds will fail until the submodule is populated."
+        )
 
 if not SKIP_CUDA_BUILD:
     print("\n\ntorch.__version__  = {}\n\n".format(torch.__version__))
@@ -359,8 +374,6 @@ setup(
             "block_sparse_attn.egg-info",
         )
     ),
-    author="Junxian Guo",
-    author_email="junxian@mit.edu",
     description="Block Sparse Attention",
     long_description=long_description,
     long_description_content_type="text/markdown",

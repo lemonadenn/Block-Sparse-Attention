@@ -212,8 +212,8 @@ def _block_sparse_attn_forward_fake(
     total_q, num_heads, _ = q.shape
     out = torch.empty_like(q)
     batch_size = cu_seqlens_q.shape[0] - 1
-    max_seqlen_q_rounded = round_multiple(max_seqlen_q_, 128)
-    max_seqlen_k_rounded = round_multiple(max_seqlen_k_, 128)
+    max_seqlen_q_rounded = round_multiple(max_seqlen_q_, m_block_dim)
+    max_seqlen_k_rounded = round_multiple(max_seqlen_k_, n_block_dim)
     softmax_lse = torch.empty((batch_size, num_heads, max_seqlen_q_rounded), dtype=torch.float32, device=q.device, layout=q.layout)
     p = torch.empty((0,), dtype=q.dtype, device=q.device, layout=q.layout)
     if return_softmax:
@@ -314,8 +314,8 @@ def _block_sparse_attn_backward_fake(
 ) -> torch.Tensor:
     total_q, num_heads, _ = q.shape
     batch_size = cu_seqlens_q.shape[0] - 1
-    max_seqlen_q_rounded = round_multiple(max_seqlen_q_, 128)
-    max_seqlen_k_rounded = round_multiple(max_seqlen_k_, 128)
+    max_seqlen_q_rounded = round_multiple(max_seqlen_q_, m_block_dim)
+    max_seqlen_k_rounded = round_multiple(max_seqlen_k_, n_block_dim)
     softmax_d = torch.empty((batch_size, num_heads, max_seqlen_q_rounded), device=q.device, dtype=torch.float32)
     return softmax_d
 
@@ -461,6 +461,8 @@ def block_sparse_attn_func(
     is_causal=False,
     exact_streaming=False,
     return_attn_probs=False,
+    m_block_dim=128,
+    n_block_dim=128,
 ):
     head_mask_type, blocksparse_head_num = replace_ones_with_count(head_mask_type)
     if base_blockmask is not None:
@@ -471,7 +473,7 @@ def block_sparse_attn_func(
     return BlockSparseAttnFunc.apply(
                 q, k, v,
                 cu_seqlens_q, cu_seqlens_k,
-                128, 128,
+                m_block_dim, n_block_dim,
                 head_mask_type,
                 streaming_info,
                 base_blockmask,
@@ -528,13 +530,15 @@ def block_streaming_attn_func(
     softmax_scale=None,
     is_causal=True,
     return_attn_probs=False,
+    m_block_dim=128,
+    n_block_dim=128,
 ):
     """dropout_p should be set to 0.0 during evaluation"""
     # print("is_causal0: ", is_causal)
     return BlockSparseAttnFunc.apply(
                 q, k, v,
                 cu_seqlens_q, cu_seqlens_k,
-                128, 128,
+                m_block_dim, n_block_dim,
                 head_mask_type,
                 streaming_info,
                 None,

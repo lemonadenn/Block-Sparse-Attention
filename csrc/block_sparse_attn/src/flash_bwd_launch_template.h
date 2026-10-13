@@ -195,6 +195,10 @@ void run_mha_bwd_block_hdim128(Flash_bwd_params &params, cudaStream_t stream) {
       C10_CUDA_CHECK(status_);
     }
     BOOL_SWITCH(params.p_dropout < 1.f, Is_dropout, [&] {
+        if (params.m_block_dim == 64 && params.n_block_dim == 64) {
+            run_flash_bwd_block<Flash_bwd_kernel_traits<Headdim, 64, 64, 8, 4, 2, 2, true, false, T>, Is_dropout, Is_causal>(params, stream);
+            return;
+        }
         // if (params.h == params.h_k) {
             // run_flash_bwd<Flash_bwd_kernel_traits<Headdim, 32, 128, 8, 2, 2, 2, false, false, T>>(params, stream, configure);
             // This is faster, in the case of sequence-parallel bwd (where we need fewer registers).

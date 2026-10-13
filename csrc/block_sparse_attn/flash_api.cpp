@@ -214,7 +214,14 @@ void run_mha_fwd_block(Flash_fwd_params &params, cudaStream_t stream, bool force
 }
 
 // add by JXGuo
-const int SPARSE_SIZE = 128;
+const int MIN_SPARSE_SIZE = 64;
+
+inline void check_supported_block_dim(const int block_dim, const char* name) {
+    TORCH_CHECK(
+        block_dim == 64 || block_dim == 128,
+        name, " must be either 64 or 128"
+    );
+}
 
 std::vector<at::Tensor>
 mha_varlen_fwd_block(at::Tensor &q,  // total_q x num_heads x head_size, total_q := \sum_{i=0}^{b} s_i
@@ -265,15 +272,17 @@ mha_varlen_fwd_block(at::Tensor &q,  // total_q x num_heads x head_size, total_q
     TORCH_CHECK(cu_seqlens_k.dtype() == torch::kInt32, "cu_seqlens_k must have dtype int32");
 
     TORCH_CHECK(head_mask_type.dtype() == torch::kInt32, "head_mask_type must have dtype int32");
+    check_supported_block_dim(m_block_dim, "m_block_dim");
+    check_supported_block_dim(n_block_dim, "n_block_dim");
     if(has_blockmask){
         TORCH_CHECK(row_blockmask.dtype() == torch::kInt32, "row_blockmask must have dtype int32");
-        TORCH_CHECK(m_block_dim % SPARSE_SIZE == 0, "m_block_dim must be a multiple of 128");
-        TORCH_CHECK(n_block_dim % SPARSE_SIZE == 0, "n_block_dim must be a multiple of 128");
+        TORCH_CHECK(m_block_dim % MIN_SPARSE_SIZE == 0, "m_block_dim must be a multiple of 64");
+        TORCH_CHECK(n_block_dim % MIN_SPARSE_SIZE == 0, "n_block_dim must be a multiple of 64");
     }
     if(has_streaming_info){
         TORCH_CHECK(streaming_info.dtype() == torch::kInt32, "streaming_info must have dtype int32");
-        TORCH_CHECK(m_block_dim % SPARSE_SIZE == 0, "m_block_dim must be a multiple of 128");
-        TORCH_CHECK(n_block_dim % SPARSE_SIZE == 0, "n_block_dim must be a multiple of 128");
+        TORCH_CHECK(m_block_dim % MIN_SPARSE_SIZE == 0, "m_block_dim must be a multiple of 64");
+        TORCH_CHECK(n_block_dim % MIN_SPARSE_SIZE == 0, "n_block_dim must be a multiple of 64");
     }
 
     CHECK_DEVICE(q); CHECK_DEVICE(k); CHECK_DEVICE(v);
@@ -328,8 +337,8 @@ mha_varlen_fwd_block(at::Tensor &q,  // total_q x num_heads x head_size, total_q
 
     auto round_multiple = [](int x, int m) { return (x + m - 1) / m * m; };
     const int head_size_rounded = round_multiple(head_size, head_size <= 128 ? 32 : 64);
-    const int seqlen_q_rounded = round_multiple(max_seqlen_q, SPARSE_SIZE);
-    const int seqlen_k_rounded = round_multiple(max_seqlen_k, SPARSE_SIZE);
+    const int seqlen_q_rounded = round_multiple(max_seqlen_q, m_block_dim);
+    const int seqlen_k_rounded = round_multiple(max_seqlen_k, n_block_dim);
 
     CHECK_SHAPE(head_mask_type, num_heads);
     if(has_blockmask){
@@ -499,15 +508,17 @@ mha_varlen_bwd_block(const at::Tensor &dout,  // total_q x num_heads, x head_siz
     TORCH_CHECK(cu_seqlens_k.dtype() == torch::kInt32, "cu_seqlens_k must have dtype int32");
 
     TORCH_CHECK(head_mask_type.dtype() == torch::kInt32, "head_mask_type must have dtype int32");
+    check_supported_block_dim(m_block_dim, "m_block_dim");
+    check_supported_block_dim(n_block_dim, "n_block_dim");
     if(has_blockmask){
         TORCH_CHECK(col_blockmask.dtype() == torch::kInt32, "col_blockmask must have dtype int32");
-        TORCH_CHECK(m_block_dim % SPARSE_SIZE == 0, "m_block_dim must be a multiple of 128");
-        TORCH_CHECK(n_block_dim % SPARSE_SIZE == 0, "n_block_dim must be a multiple of 128");
+        TORCH_CHECK(m_block_dim % MIN_SPARSE_SIZE == 0, "m_block_dim must be a multiple of 64");
+        TORCH_CHECK(n_block_dim % MIN_SPARSE_SIZE == 0, "n_block_dim must be a multiple of 64");
     }
     if(has_streaming_info){
         TORCH_CHECK(streaming_info.dtype() == torch::kInt32, "streaming_info must have dtype int32");
-        TORCH_CHECK(m_block_dim % SPARSE_SIZE == 0, "m_block_dim must be a multiple of 128");
-        TORCH_CHECK(n_block_dim % SPARSE_SIZE == 0, "n_block_dim must be a multiple of 128");
+        TORCH_CHECK(m_block_dim % MIN_SPARSE_SIZE == 0, "m_block_dim must be a multiple of 64");
+        TORCH_CHECK(n_block_dim % MIN_SPARSE_SIZE == 0, "n_block_dim must be a multiple of 64");
     }
 
     CHECK_DEVICE(q); CHECK_DEVICE(k); CHECK_DEVICE(v);
@@ -551,8 +562,8 @@ mha_varlen_bwd_block(const at::Tensor &dout,  // total_q x num_heads, x head_siz
 
     auto round_multiple = [](int x, int m) { return (x + m - 1) / m * m; };
     const int head_size_rounded = round_multiple(head_size, head_size <= 128 ? 32 : 64);
-    const int seqlen_q_rounded = round_multiple(max_seqlen_q, SPARSE_SIZE);
-    const int seqlen_k_rounded = round_multiple(max_seqlen_k, SPARSE_SIZE);
+    const int seqlen_q_rounded = round_multiple(max_seqlen_q, m_block_dim);
+    const int seqlen_k_rounded = round_multiple(max_seqlen_k, n_block_dim);
 
     if (window_size_left >= max_seqlen_k) { window_size_left = -1; }
     if (window_size_right >= max_seqlen_k) { window_size_right = -1; }
